@@ -1,0 +1,10 @@
+*.pyc
+*.log
+__pycache__
+.idea
+.vs
+.vscode
+*.xlsx
+*.xls
+config_data
+temp
