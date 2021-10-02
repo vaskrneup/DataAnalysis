@@ -1,19 +1,22 @@
 from __future__ import annotations
-from functools import lru_cache
+
 import re
+from functools import lru_cache
 
 import requests as requests
 
+from third_party_services import BaseThirdPartyServices
 from third_party_services.meroshare.exceptions import (
     CapitalNotFound, WrongMeroShareCredentials,
     CantGetOwnData, CantGetBankData, CantGetCoreBankData,
     CantGetCapitalDetails, CantGetShareData, CantGetPortfolioData,
     CantGetPurchaseSourceData, CantGetCurrentIssueData, CantGetApplicationReportData,
-    CantGetOldApplicationReportData, CantGetCurrentHoldingsShortNameData,
+    CantGetOldApplicationReportData, CantGetCurrentHoldingsShortNameData, CantChangeMerosharePIN,
 )
+from utils.pretty_print import pretty_print
 
 
-class MeroShare:
+class MeroShare(BaseThirdPartyServices):
     """
     Provides various function that is provided by the website.
     """
@@ -33,12 +36,29 @@ class MeroShare:
     WRONG_PASSWORD_DOCUMENTATION_COMPILED_RE = re.compile(r"<documentation>(.*?)</documentation>")
     WRONG_PASSWORD_MESSAGE_COMPILED_RE = re.compile(r"<message>(.*?)</message>")
 
-    def __init__(self, *, dp: str, username: str, password: str, pin: str):
+    MY_DETAIL_URL = "https://webbackend.cdsc.com.np/api/meroShareView/myDetail/{BOID}"
+    BANK_REQUEST_URL = "https://webbackend.cdsc.com.np/api/bankRequest/{BANK_CODE}"
+    CAPITAL_NAMES_URL = "https://webbackend.cdsc.com.np/api/meroShare/capital/"
+    OWN_DETAIL_URL = "https://webbackend.cdsc.com.np/api/meroShare/ownDetail/"
+    MY_SHARE_DETAIL_URL = "https://webbackend.cdsc.com.np/api/meroShareView/myShare/"
+    CURRENT_HOLDINGS_SHORT_NAME_URL = "https://webbackend.cdsc.com.np/api/myPurchase/myShare/"
+    CURRENT_HOLDINGS_MY_PORTFOLIO_URL = "https://webbackend.cdsc.com.np/api/meroShareView/myPortfolio/"
+    PURCHASE_SOURCE_URL = "https://webbackend.cdsc.com.np/api/myPurchase/search/"
+    CURRENT_ISSUE_URL = "https://webbackend.cdsc.com.np/api/meroShare/companyShare/currentIssue"
+    NEW_APPLICATION_REPORT_URL = "https://webbackend.cdsc.com.np/api/meroShare/applicantForm/active/search/"
+    OLD_APPLICATION_REPORT_URL = "https://webbackend.cdsc.com.np/api/meroShare/migrated/applicantForm/search/"
+
+    LOGIN_URL = "https://webbackend.cdsc.com.np/api/meroShare/auth/"
+    CHANGE_PASSWORD_URL = "https://webbackend.cdsc.com.np/api/meroShare/changePassword/"
+    CHANGE_PIN_URL = "https://webbackend.cdsc.com.np/api/meroShare/changeTransactionPIN/"
+
+    def __init__(self, config, *, dp: str, username: str, password: str, pin: str):
         """
         :param dp: dp field that is used in login.
         :param username: username field that is used in login.
         :param password: password field that is used in login.
         """
+        super().__init__(config)
         self.dp = str(dp)
         self.id = self.get_id_for_dp(str(dp))
         self.username = username
@@ -72,7 +92,7 @@ class MeroShare:
         if self._bank_data:
             return self._bank_data
 
-        bank_data_resp = self.get(f"https://webbackend.cdsc.com.np/api/meroShareView/myDetail/{self.boid}")
+        bank_data_resp = self.get(self.MY_DETAIL_URL.format(BOID=self.boid))
 
         if bank_data_resp.ok:
             bank_data = bank_data_resp.json()
@@ -98,8 +118,7 @@ class MeroShare:
             Gets core bank details
             NOTE: Will be cached !!
         """
-
-        core_bank_data_resp = self.get(f"https://webbackend.cdsc.com.np/api/bankRequest/{self.bank_code}")
+        core_bank_data_resp = self.get(self.BANK_REQUEST_URL.format(BANK_CODE=self.bank_code))
 
         if core_bank_data_resp.ok:
             return core_bank_data_resp.json().get("crnNumber")
@@ -133,7 +152,7 @@ class MeroShare:
     def get_id_for_dp(self, dp) -> int:
         """Gets id for capital provided, if not found error will be raised."""
 
-        capital_names = self.get("https://webbackend.cdsc.com.np/api/meroShare/capital/")
+        capital_names = self.get(self.CAPITAL_NAMES_URL)
 
         if capital_names.ok:
             for name in capital_names.json():
@@ -148,7 +167,7 @@ class MeroShare:
     def load_initial_account_data(self) -> MeroShare:
         """Loads account details, that will be later used to make other requests."""
 
-        own_details = self.get("https://webbackend.cdsc.com.np/api/meroShare/ownDetail/")
+        own_details = self.get(self.OWN_DETAIL_URL)
         if own_details.ok:
             self.account_data = {**self.account_data, **own_details.json()}
         else:
@@ -160,7 +179,7 @@ class MeroShare:
         """Gets share holdings for a particular page."""
 
         share_detail_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/meroShareView/myShare/",
+            self.MY_SHARE_DETAIL_URL,
             json={
                 "sortBy": "CCY_SHORT_NAME",
                 "demat": [self.boid],
@@ -178,9 +197,7 @@ class MeroShare:
 
     def get_current_holdings_short_names(self):
         """Gets shortnames for current holdings from 'https://meroshare.cdsc.com.np/#/purchase'"""
-        current_holdings_short_name_resp = self.get(
-            "https://webbackend.cdsc.com.np/api/myPurchase/myShare/"
-        )
+        current_holdings_short_name_resp = self.get(self.CURRENT_HOLDINGS_SHORT_NAME_URL)
 
         if current_holdings_short_name_resp.ok:
             return current_holdings_short_name_resp.json()
@@ -215,7 +232,7 @@ class MeroShare:
         """Gets portfolio holdings with price for a particular page."""
 
         share_detail_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/meroShareView/myPortfolio/",
+            self.CURRENT_HOLDINGS_MY_PORTFOLIO_URL,
             json={
                 "sortBy": "script",
                 "demat": [self.boid],
@@ -274,7 +291,7 @@ class MeroShare:
         scrip = scrip.upper()
 
         scrip_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/myPurchase/search/",
+            self.PURCHASE_SOURCE_URL,
             json={
                 "demat": self.boid,
                 "scrip": scrip
@@ -290,7 +307,7 @@ class MeroShare:
         """Gets current issue from 'https://meroshare.cdsc.com.np/#/asba'"""
 
         current_issue_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/meroShare/companyShare/currentIssue",
+            self.CURRENT_ISSUE_URL,
             json={
                 "filterFieldParams": [
                     {
@@ -331,7 +348,7 @@ class MeroShare:
         """Gets application report from active TAB"""
 
         application_report_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/meroShare/applicantForm/active/search/",
+            self.NEW_APPLICATION_REPORT_URL,
             json={
                 "filterFieldParams": [
                     {"key": "companyShare.companyIssue.companyISIN.script", "alias": "Scrip"},
@@ -357,7 +374,7 @@ class MeroShare:
         """Gets application report from Old Application Report TAB."""
 
         old_application_report_resp = self.post(
-            "https://webbackend.cdsc.com.np/api/meroShare/migrated/applicantForm/search/",
+            self.OLD_APPLICATION_REPORT_URL,
             json={
                 "filterFieldParams": [
                     {"key": "companyShare.companyIssue.companyISIN.script", "alias": "Scrip"},
@@ -433,7 +450,7 @@ class MeroShare:
         """logs in to the site and saves auth token for making further requests."""
 
         login_resp = requests.post(
-            "https://webbackend.cdsc.com.np/api/meroShare/auth/",
+            self.LOGIN_URL,
             json={
                 "clientId": self.id,
                 "username": self.username,
@@ -452,8 +469,74 @@ class MeroShare:
                 f"MESSAGE: {self.WRONG_PASSWORD_MESSAGE_COMPILED_RE.findall(login_resp.text)}"
             )
 
-    # TODO: ACCEPT PURCHASE SOURCE !!
-    # TODO: DO EDIS i.e. TRANSFER SHARES AFTER ACCEPTING PURCHASE SOURCE !!
-    # TODO: APPLY TO NEW IPOS !!
-    # TODO: CHANGE PIN !!
-    # TODO: CHANGE PASSWORD !!
+    def change_password(self, new_password: str, raise_exception=True):
+        """Changes password using the endpoint: CHANGE_PIN_URL"""
+        change_password_resp = self.post(
+            self.CHANGE_PASSWORD_URL,
+            json={
+                "oldPassword": self.password,
+                "newPassword": new_password,
+                "confirmPassword": new_password
+            }
+        )
+
+        if change_password_resp.ok:
+            self.password = new_password
+
+            if self.config is not None:
+                self.config.config["third_party_services"]["meroshare"]["credentials"]["password"] = new_password
+                self.config.write_config()
+
+            return change_password_resp.json()
+        else:
+            if raise_exception:
+                raise CantChangeMerosharePIN(
+                    f"POST CODE: {change_password_resp.status_code}\n"
+                    f"{pretty_print(change_password_resp.json())}"
+                )
+            else:
+                return change_password_resp.json()
+
+    def change_pin(self, new_pin: str, raise_exception=True):
+        """Changes password using the endpoint: CHANGE_PIN_URL"""
+        change_pin_resp = self.post(
+            self.CHANGE_PIN_URL,
+            json={
+                "oldTransactionPIN": self.password,
+                "newTransactionPIN": str(new_pin),
+                "confirmTransactionPIN": str(new_pin)
+            }
+        )
+
+        if change_pin_resp.ok:
+            if self.config is not None:
+                self.config.config["third_party_services"]["meroshare"]["credentials"]["pin"] = new_pin
+                self.config.write_config()
+
+            self.pin = new_pin
+
+            return change_pin_resp.json()
+        else:
+            if raise_exception:
+                raise CantChangeMerosharePIN(
+                    f"POST CODE: {change_pin_resp.status_code}\n"
+                    f"{pretty_print(change_pin_resp.json())}"
+                )
+            else:
+                return change_pin_resp.json()
+
+    def accept_purchase_source(self):
+        # TODO !!
+        pass
+
+    def do_edis(self):
+        # TODO !!
+        pass
+
+    def transfer_share(self):
+        # TODO !!
+        pass
+
+    def apply_to_new_ipos(self):
+        # TODO !!
+        pass

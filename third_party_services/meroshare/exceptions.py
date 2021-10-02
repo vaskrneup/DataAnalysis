@@ -48,3 +48,11 @@ class CantGetApplicationReportData(Exception):
 
 class CantGetOldApplicationReportData(Exception):
     """Cant get data from 'https://webbackend.cdsc.com.np/api/meroShare/migrated/applicantForm/search/'"""
+
+
+class CantChangeMerosharePIN(Exception):
+    """Cant change the PIN of meroshare from 'https://meroshare.cdsc.com.np/#/ownProfile'"""
+
+
+class CantChangeMerosharePassword(Exception):
+    """Cant change the password of meroshare from 'https://meroshare.cdsc.com.np/#/ownProfile'"""
